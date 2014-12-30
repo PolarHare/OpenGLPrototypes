@@ -3,7 +3,7 @@ import numpy as np
 import OpenGL.GL as gl
 import OpenGL.GLUT as glut
 
-import commons
+from commons import utils
 
 glut.glutInit()
 
@@ -28,7 +28,7 @@ class GlutWindow(object):
         GlutWindow.display_busy_up_to_corner = next_pos + window_size
         return next_pos
 
-    def __init__(self, limit_fps=60, show_fps=True, window_name='GlutWindow', size=np.asarray([768, 512])):
+    def __init__(self, limit_fps=100, show_fps=True, window_name='GlutWindow', size=np.asarray([768, 512])):
         self.limit_fps = limit_fps
         self.show_fps = show_fps
         self.window_name = window_name
@@ -44,7 +44,7 @@ class GlutWindow(object):
 
     def update(self, _):
         if self.show_fps:
-            current_time = commons.current_time_ms()
+            current_time = utils.current_time_ms()
             passed_time = current_time - self.previous_update_time
             fps = 1000 // passed_time
             if current_time > self.previous_fps_print + 100:
@@ -57,7 +57,7 @@ class GlutWindow(object):
     def run(self):
         self.interval_ms = 0 if self.limit_fps <= 0 else 1000 / self.limit_fps
         if self.show_fps:
-            self.previous_update_time = commons.current_time_ms()
+            self.previous_update_time = utils.current_time_ms()
             self.previous_fps_print = -1
         glut.glutTimerFunc(self.interval_ms, self.update, 0)
         glut.glutMainLoop()
@@ -75,5 +75,5 @@ class GlutWindow(object):
 
 
 if __name__ == '__main__':
-    win = GlutWindow(limit_fps=100)
+    win = GlutWindow()
     win.run()

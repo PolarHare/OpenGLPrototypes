@@ -3,11 +3,21 @@ import ctypes
 from contextlib import contextmanager
 
 import numpy as np
+import PIL.Image
 
 import OpenGL.GL as gl
 from OpenGL.GL.shaders import glGetProgramInfoLog
 
-from glut_commons import GlutWindow
+from glut import GlutWindow
+
+REPEAT_TEXTURE = [(gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT),
+                  (gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT)]
+
+CLAMP_TEXTURE = [(gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_BORDER),
+                 (gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_BORDER)]
+
+LINEAR_TEXTURE = [(gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR),
+                  (gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)]
 
 
 @contextmanager
@@ -67,6 +77,29 @@ def bind_buffer(gl_program, gl_buffer, gl_data):
     gl.glVertexAttribPointer(loc, gl_data.component_size, gl_data.type, False, stride, offset)
     gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
 
+class GLTexture(object):
+
+    next_texture_slot = 1
+
+    def __init__(self, filename, param=CLAMP_TEXTURE+LINEAR_TEXTURE):
+        slot = self.next_texture_slot
+        self.next_texture_slot += 1
+
+        img = PIL.Image.open(filename)
+        img_data = np.array(list(img.getdata()), np.int8)
+
+        self.gl_texture = gl.glGenTextures(1)
+        gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+
+        gl.glActiveTexture(gl.GL_TEXTURE0 + slot)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, self.gl_texture)
+
+        for key, value in param:
+            gl.glTexParameterf(gl.GL_TEXTURE_2D, key, value)
+        gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, img.size[0], img.size[1], 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, img_data)
+
+        gl.glActiveTexture(gl.GL_TEXTURE0)
+
 
 class GLData(object):
 
@@ -113,10 +146,14 @@ class GLTask(object):
             loc = gl.glGetUniformLocation(self.gl_program, attribute_name)
             gl_uniform(loc, *value)
 
+    def bind_texture(self, attribute_name, texture):
+        ''':type texture: GLTexture'''
+        self.bind_uniform(attribute_name, [texture.gl_texture], gl.glUniform1i)
+
 
 class GLWindow(GlutWindow):
 
-    def __init__(self, gl_tasks, limit_fps=60, show_fps=True,
+    def __init__(self, gl_tasks, limit_fps=100, show_fps=True,
                  window_name='OpenGL Window', size=np.asarray([768, 512])):
         ''':type gl_tasks: list of GLTask'''
         super(GLWindow, self).__init__(limit_fps, show_fps, window_name, size)

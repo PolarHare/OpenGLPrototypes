@@ -1,9 +1,9 @@
 import numpy as np
-from commons.commons import current_time_ms
 
-from commons.opengl_commons import GLWindow
-from commons.opengl_commons import GLTask
-from commons.opengl_commons import GLData
+from commons.utils import current_time_ms
+from commons.opengl import GLWindow
+from commons.opengl import GLTask
+from commons.opengl import GLData
 
 import OpenGL.GL as gl
 
