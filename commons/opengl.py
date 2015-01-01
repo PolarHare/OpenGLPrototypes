@@ -16,13 +16,17 @@ REPEAT_TEXTURE = [(gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT),
 CLAMP_TEXTURE = [(gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_BORDER),
                  (gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_BORDER)]
 
+CLAMP_TO_EDGE_TEXTURE = [(gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE),
+                         (gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)]
+
+
 LINEAR_TEXTURE = [(gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR),
                   (gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)]
 
 
 @contextmanager
-def use_gl_program(gl_program):
-    gl.glUseProgram(gl_program)
+def use_program(program):
+    gl.glUseProgram(program)
     yield
     gl.glUseProgram(0)
 
@@ -33,72 +37,121 @@ def recognize_gl_type(data):
             'uint32': gl.GL_UNSIGNED_INT
     }[data.dtype.name]
 
-def build_gl_program(vertex_code, fragment_code):
-    gl_program = gl.glCreateProgram()
+
+def build_program(vertex_code, fragment_code):
+    program = gl.glCreateProgram()
 
     vertex = gl.glCreateShader(gl.GL_VERTEX_SHADER)
-    fragment = gl.glCreateShader(gl.GL_FRAGMENT_SHADER)
     gl.glShaderSource(vertex, vertex_code)
-    gl.glShaderSource(fragment, fragment_code)
     gl.glCompileShader(vertex)
-    gl.glCompileShader(fragment)
+    gl.glAttachShader(program, vertex)
 
-    gl.glAttachShader(gl_program, vertex)
-    gl.glAttachShader(gl_program, fragment)
-    gl.glLinkProgram(gl_program)
+    fragment = None
+    if fragment_code is not None:
+        fragment = gl.glCreateShader(gl.GL_FRAGMENT_SHADER)
+        gl.glShaderSource(fragment, fragment_code)
+        gl.glCompileShader(fragment)
+        gl.glAttachShader(program, fragment)
 
-    success = gl.glGetProgramiv(gl_program, gl.GL_LINK_STATUS)
+    gl.glLinkProgram(program)
+
+    success = gl.glGetProgramiv(program, gl.GL_LINK_STATUS)
     if success == gl.GL_FALSE:
-        log = glGetProgramInfoLog(gl_program)
+        log = glGetProgramInfoLog(program)
         print "Linking failed!\nLog:\n'" + log + "'"
         raise
 
-    gl.glDetachShader(gl_program, vertex)
-    gl.glDetachShader(gl_program, fragment)
-    return gl_program
+    gl.glDetachShader(program, vertex)
+    if fragment is not None:
+        gl.glDetachShader(program, fragment)
+    return program
 
 
-def build_buffer(gl_program, data, data_usage=gl.GL_STATIC_DRAW, buffer_target=gl.GL_ARRAY_BUFFER):
-    with use_gl_program(gl_program):
-        gl_buffer = gl.glGenBuffers(1)
-        gl.glBindBuffer(buffer_target, gl_buffer)
+def build_buffer(program, data, data_usage=gl.GL_STATIC_DRAW, buffer_target=gl.GL_ARRAY_BUFFER):
+    with use_program(program):
+        buffer = gl.glGenBuffers(1)
+        gl.glBindBuffer(buffer_target, buffer)
         gl.glBufferData(buffer_target, data.nbytes, data, data_usage)
     gl.glBindBuffer(buffer_target, 0)
-    return gl_buffer
+    return buffer
 
 
-def bind_buffer(gl_program, gl_buffer, gl_data):
-    ''':type gl_data: GLData'''
-    stride = gl_data.data.strides[0]
+def load_buffer(program, buffer, data):
+    """:type data: GLData"""
+    stride = data.data.strides[0]
     offset = ctypes.c_void_p(0)
-    loc = gl.glGetAttribLocation(gl_program, gl_data.attribute_name)
+    loc = gl.glGetAttribLocation(program, data.attribute_name)
     gl.glEnableVertexAttribArray(loc)
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, gl_buffer)
-    gl.glVertexAttribPointer(loc, gl_data.component_size, gl_data.type, False, stride, offset)
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, buffer)
+    gl.glVertexAttribPointer(loc, data.component_size, data.type, False, stride, offset)
     gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
 
-class GLTexture(object):
 
-    next_texture_slot = 1
+class Bindable(object):
+    def __enter__(self):
+        self.bind()
 
-    def __init__(self, filename, param=CLAMP_TEXTURE+LINEAR_TEXTURE):
-        slot = self.next_texture_slot
-        self.next_texture_slot += 1
+    def __exit__(self, *args):
+        self.unbind()
 
-        img = PIL.Image.open(filename)
-        img_data = np.array(list(img.getdata()), np.int8)
+    def bind(self):
+        raise NotImplementedError("Abstract method call")
 
-        self.gl_texture = gl.glGenTextures(1)
-        gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+    def unbind(self):
+        raise NotImplementedError("Abstract method call")
 
-        gl.glActiveTexture(gl.GL_TEXTURE0 + slot)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self.gl_texture)
 
+class Texture(Bindable):
+
+    target = None
+
+    def __init__(self):
+        self.handle = gl.glGenTextures(1)
+
+    def bind(self):
+        gl.glBindTexture(self.target, self.handle)
+
+    def unbind(self):
+        gl.glBindTexture(self.target, 0)
+
+    def release(self):
+        gl.glDeleteTextures(np.uint32([self.handle]))
+
+    def set_params(self, args):
+        for key, value in args:
+            if isinstance(value, int):
+                gl.glTexParameteri(self, self.target, key, value)
+            else:
+                gl.glTexParameterf(self, self.target, key, value)
+
+class Texture1D(Texture):
+    target = gl.GL_TEXTURE_1D
+
+class Texture2D(Texture):
+    target = gl.GL_TEXTURE_2D
+
+next_texture_slot = 1
+
+def create_image_texture(filename, param=CLAMP_TEXTURE+LINEAR_TEXTURE):
+    global next_texture_slot
+
+    slot = next_texture_slot
+    next_texture_slot += 1
+
+    img = PIL.Image.open(filename)
+    img_data = np.array(list(img.getdata()), np.int8)
+
+    texture = Texture2D()
+    gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+
+    gl.glActiveTexture(gl.GL_TEXTURE0 + slot)
+    with texture:
         for key, value in param:
             gl.glTexParameterf(gl.GL_TEXTURE_2D, key, value)
         gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, img.size[0], img.size[1], 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, img_data)
 
         gl.glActiveTexture(gl.GL_TEXTURE0)
+    return texture
 
 
 class GLData(object):
@@ -115,59 +168,58 @@ class GLData(object):
 class GLTask(object):
 
     def __init__(self, vertex_shader, fragment_shader,
-                 gl_datas, geometry_indices, geometry_type=gl.GL_TRIANGLE_STRIP):
-        ''':type gl_datas: list of GLData'''
-        self.gl_program = None
+                 datas, geometry_indices, geometry_type=gl.GL_TRIANGLE_STRIP):
+        ''':type datas: list of GLData'''
+        self.program = None
         self.vertex_shader = vertex_shader
         self.fragment_shader = fragment_shader
-        if not isinstance(gl_datas, collections.Iterable):
-            gl_datas = [gl_datas]
-        self.gl_datas = gl_datas
+        if not isinstance(datas, collections.Iterable):
+            datas = [datas]
+        self.datas = datas
         self.geometry_indices = np.ndarray.astype(geometry_indices, np.uint32)
-        self.gl_indices_buffer = None
+        self.indices_buffer = None
         self.geometry_type = geometry_type
 
     def build(self):
-        if self.gl_program is not None:
+        if self.program is not None:
             raise
-        self.gl_program = build_gl_program(self.vertex_shader, self.fragment_shader)
-        self.gl_indices_buffer = build_buffer(self.gl_program, self.geometry_indices,
+        self.program = build_program(self.vertex_shader, self.fragment_shader)
+        self.indices_buffer = build_buffer(self.program, self.geometry_indices,
                                               gl.GL_STATIC_DRAW, gl.GL_ELEMENT_ARRAY_BUFFER)
 
-        for gl_data in self.gl_datas:
-            gl_buffer = build_buffer(self.gl_program, gl_data.data, gl_data.gl_usage)
-            bind_buffer(self.gl_program, gl_buffer, gl_data)
+        for data in self.datas:
+            buffer = build_buffer(self.program, data.data, data.gl_usage)
+            load_buffer(self.program, buffer, data)
 
     def bind_uniform(self, attribute_name, value, gl_uniform=gl.glUniform1f):
-        ''':type gl_task: GLTask'''
-        if self.gl_program is None:
+        if self.program is None:
             raise
-        with use_gl_program(self.gl_program):
-            loc = gl.glGetUniformLocation(self.gl_program, attribute_name)
+        with use_program(self.program):
+            loc = gl.glGetUniformLocation(self.program, attribute_name)
             gl_uniform(loc, *value)
 
     def bind_texture(self, attribute_name, texture):
-        ''':type texture: GLTexture'''
-        self.bind_uniform(attribute_name, [texture.gl_texture], gl.glUniform1i)
+        """:type texture: Texture"""
+        self.bind_uniform(attribute_name, [texture.handle], gl.glUniform1i)
 
 
 class GLWindow(GlutWindow):
 
-    def __init__(self, gl_tasks, limit_fps=100, show_fps=True,
+    def __init__(self, tasks, limit_fps=100, show_fps=True,
                  window_name='OpenGL Window', size=np.asarray([768, 512])):
-        ''':type gl_tasks: list of GLTask'''
+        """:type tasks: list of GLTask"""
         super(GLWindow, self).__init__(limit_fps, show_fps, window_name, size)
-        for gl_task in gl_tasks:
-            gl_task.build()
-        self.gl_tasks = gl_tasks
+        for task in tasks:
+            task.build()
+        self.tasks = tasks
 
     def display(self):
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-        for gl_task in self.gl_tasks:
-            with use_gl_program(gl_task.gl_program):
+        for task in self.tasks:
+            with use_program(task.program):
                 # gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, gl_task.gl_indices_buffer)
-                indices = gl_task.geometry_indices
-                gl.glDrawElements(gl_task.geometry_type, indices.size, recognize_gl_type(indices), indices)
+                indices = task.geometry_indices
+                gl.glDrawElements(task.geometry_type, indices.size, recognize_gl_type(indices), indices)
                 # gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, 0)
         super(GLWindow, self).display()
 

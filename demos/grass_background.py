@@ -1,10 +1,9 @@
 import numpy as np
 
-import commons.opengl
+import commons.opengl as opengl
 from commons.opengl import GLWindow
 from commons.opengl import GLTask
 from commons.opengl import GLData
-from commons.opengl import GLTexture
 import commons.matrix as matrix
 
 import OpenGL.GL as gl
@@ -41,13 +40,14 @@ void main()
 class GrassWindow(GLWindow):
 
     def __init__(self, texture_fn="../data/grass.png", size=np.asarray([768, 512])):
-        position = np.asarray([[-10.0, -10.0, 1.0], [-10.0, +10.0, 1.0], [+10.0, -10.0, 1], [+10.0, +10.0, 1]], np.float32)
+        range = 10.0
+        position = np.asarray([[-range, -range, 1.0], [-range, +range, 1.0], [+range, -range, 1], [+range, +range, 1]], np.float32)
         gl_datas = [GLData(position, 'pos')]
 
         self.grass_task = GLTask(rectangle_vp, rectangle_fp, gl_datas, np.asarray([[0, 1, 2], [1, 2, 3]]), geometry_type=gl.GL_TRIANGLES)
-        super(GrassWindow, self).__init__(gl_tasks=[self.grass_task], window_name='Grass', size=size)
+        super(GrassWindow, self).__init__([self.grass_task], window_name='Grass', size=size)
         self.grass_task.bind_texture('grass_tex',
-                                     GLTexture(texture_fn, commons.opengl.REPEAT_TEXTURE+commons.opengl.LINEAR_TEXTURE))
+                                     opengl.create_image_texture(texture_fn, opengl.CLAMP_TO_EDGE_TEXTURE + opengl.LINEAR_TEXTURE))
         self.camera_pos = np.asarray([0.0, 0.0])
         self.update_world()
 
