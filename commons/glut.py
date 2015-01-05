@@ -43,16 +43,16 @@ class GlutWindow(object):
         glut.glutKeyboardFunc(self.keyboard)
 
     def update(self, _):
+        current_time = utils.current_time_ms()
+        passed_time = current_time - self.previous_update_time
         if self.show_fps:
-            current_time = utils.current_time_ms()
-            passed_time = current_time - self.previous_update_time
             fps = 1000 // passed_time
             if current_time > self.previous_fps_print + 100:
                 print fps, 'FPS\r',
                 self.previous_fps_print = current_time
             self.previous_update_time = current_time
         glut.glutPostRedisplay()
-        glut.glutTimerFunc(self.interval_ms, self.update, 0)
+        glut.glutTimerFunc(self.interval_ms, self.update, int(passed_time))
 
     def run(self):
         self.interval_ms = 0 if self.limit_fps <= 0 else 1000 / self.limit_fps

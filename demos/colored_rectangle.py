@@ -48,11 +48,11 @@ class RectangleWindow(GLWindow):
     def __init__(self, size=np.asarray([768, 512])):
         lightness = 0.6
         color = np.asarray([(lightness, 0, 0, 1), (0, lightness, 0, 1), (0, 0, lightness, 1), (lightness, lightness, 0, 1)], np.float32)
-        position = np.asarray([(-1, -1), (-1, +1), (+1, -1), (+1, +1)], np.float32)
+        position = np.asarray([(-1, -1), (-1, +1), (+1, +1), (+1, -1)], np.float32)
         gl_datas = [GLData(color, 'color'), GLData(position, 'position')]
 
-        self.rectangle_task = GLTask(rectangle_vp, rectangle_fp, gl_datas, np.asarray([[0, 1, 2], [1, 2, 3]]), geometry_type=gl.GL_TRIANGLES)
-        super(RectangleWindow, self).__init__(gl_tasks=[self.rectangle_task], window_name='Colored rectangle', size=size)
+        self.rectangle_task = GLTask(rectangle_vp, rectangle_fp, gl_datas, np.asarray([[0, 1, 2], [0, 2, 3]]), geometry_type=gl.GL_TRIANGLES)
+        super(RectangleWindow, self).__init__(tasks=[self.rectangle_task], window_name='Colored rectangle', size=size)
 
     def run(self):
         self.start_time = current_time_ms()

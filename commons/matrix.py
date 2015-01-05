@@ -17,15 +17,15 @@ def translation_matrix_2d(x0, y0):
 
 def frustum_matrix_2d(left, right, near, far):
     """
-    :param left: left edge of frustum (x axis) (on near line)
-    :param right: right edge of frustum (x axis) (on near line)
+    :param left: left edge of frustum (x axis) (on far line)
+    :param right: right edge of frustum (x axis) (on far line)
     :param near: distance to near line (y axis)
     :param far: distance to far line (y axis)
     :return: matrix, that transforms (x0, y0, w0) -> (x1, y1, w1),
         where x1 is in [-1.0, 1.0], if x0 is in frustum perspective-cone,
         y1 is in [-1.0, 1.0], if y0 is in [near, far]
     """
-    return np.asarray([[2.0*near/(right - left), 1.0*(right+left)/(left-right), 0],
+    return np.asarray([[2.0*far/(right - left), 1.0*(right+left)/(left-right), 0],
                        [0, 1.0*(near+far)/(far-near), 2.0*far*near/(near-far)],
                        [0, 1, 0]], np.float32)
 
@@ -37,7 +37,7 @@ def rect_to_rect_matrix(rect0, rect1):
                        [0, 0, 1]], np.float32)
 
 if __name__ == '__main__':
-    mat = frustum_matrix_2d(-3, 5, 10, 100)
+    mat = frustum_matrix_2d(-30, 50, 10, 100)
 
     res = mat.dot(np.asarray([-3, 10, 1]).T)
     print res[:2] / res[2]
