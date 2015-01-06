@@ -77,7 +77,7 @@ class GrassWindow(GLWindow):
         kitten_data = [GLData(kitten_position, 'position')]
 
         box_lightness = 0.6
-        box_position = np.asarray([[-0.1, 0.7], [0.1, 1.0], [0.2, 0.9], [0.2, 0.6]], np.float32)
+        box_position = np.asarray([[-0.1, 0.7], [0.1, 1.0], [0.7, 0.9], [0.2, 0.6]], np.float32)
         box_color = np.asarray([(box_lightness, 0, 0, 0.1), (0, box_lightness, 0, 0.7),
                             (0, 0, box_lightness, 0.7), (box_lightness, box_lightness, 0, 0.7)], np.float32)
         box_data = [GLData(box_position, 'position'), GLData(box_color, 'color')]

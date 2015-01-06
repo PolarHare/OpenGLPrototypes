@@ -29,8 +29,15 @@ def frustum_matrix_2d(left, right, near, far):
                        [0, 1.0*(near+far)/(far-near), 2.0*far*near/(near-far)],
                        [0, 1, 0]], np.float32)
 
+def invert_y_in_range(from_y, to_y):
+    matrix = np.eye(3)
+    matrix[1, 1] = -1
+    matrix[1, 2] = from_y + to_y
+    return matrix
+
 
 def rect_to_rect_matrix(rect0, rect1):
+    rect0, rect1 = np.asarray(rect0), np.asarray(rect1)
     scale_x, scale_y = 1.0 * (rect1[1] - rect1[0]) / (rect0[1] - rect0[0])
     return np.asarray([[scale_x, 0, rect1[0, 0]-rect0[0, 0]*scale_x],
                        [0, scale_y, rect1[0, 1]-rect0[0, 1]*scale_y],

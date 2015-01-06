@@ -23,6 +23,9 @@ CLAMP_TO_EDGE_TEXTURE = [(gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE),
 LINEAR_TEXTURE = [(gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR),
                   (gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)]
 
+NEAREST_TEXTURE = [(gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST),
+                  (gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)]
+
 
 @contextmanager
 def use_program(program):
@@ -163,11 +166,12 @@ class Texture(Bindable):
         gl.glDeleteTextures(np.uint32([self.handle]))
 
     def set_params(self, args):
-        for key, value in args:
-            if isinstance(value, int):
-                gl.glTexParameteri(self, self.target, key, value)
-            else:
-                gl.glTexParameterf(self, self.target, key, value)
+        with self:
+            for key, value in args:
+                if isinstance(value, int):
+                    gl.glTexParameteri(self.target, key, value)
+                else:
+                    gl.glTexParameterf(self.target, key, value)
 
 
 class Texture1D(Texture):
