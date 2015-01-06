@@ -141,11 +141,12 @@ class VertexArrayObject(Bindable):
 class Texture(Bindable):
 
     target = None
+    next_texture_slot = 1
 
     def __init__(self):
-        self.slot = self.get_next_slot()
+        self.slot = Texture.next_texture_slot
+        Texture.next_texture_slot += 1
         self.handle = gl.glGenTextures(1)
-        print self.handle
         with self:
             gl.glBindTexture(self.target, self.handle)
 
@@ -170,23 +171,11 @@ class Texture(Bindable):
 
 
 class Texture1D(Texture):
-    next_texture_slot = 1
     target = gl.GL_TEXTURE_1D
-
-    def get_next_slot(self):
-        slot = Texture1D.next_texture_slot
-        Texture1D.next_texture_slot += 1
-        return slot
 
 
 class Texture2D(Texture):
-    next_texture_slot = 1
     target = gl.GL_TEXTURE_2D
-
-    def get_next_slot(self):
-        slot = Texture2D.next_texture_slot
-        Texture2D.next_texture_slot += 1
-        return slot
 
 
 def create_image_texture(filename, param=CLAMP_TEXTURE+LINEAR_TEXTURE):

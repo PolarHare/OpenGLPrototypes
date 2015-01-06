@@ -181,26 +181,28 @@ if __name__ == '__main__':
     assert gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER) == gl.GL_FRAMEBUFFER_COMPLETE
 
     color_tex = gl.glGenTextures(1)
-    gl.glActiveTexture(gl.GL_TEXTURE1)
+    # gl.glActiveTexture(gl.GL_TEXTURE1)
     gl.glBindTexture(gl.GL_TEXTURE_2D, color_tex)
     gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, width_2, height_2, 0, gl.GL_RGBA,
                     gl.GL_UNSIGNED_BYTE, None)
 
     depth_tex = gl.glGenTextures(1)
-    gl.glActiveTexture(gl.GL_TEXTURE2)
+    # gl.glActiveTexture(gl.GL_TEXTURE2)
     gl.glBindTexture(gl.GL_TEXTURE_2D, depth_tex)
     gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_DEPTH_COMPONENT, width_2, height_2, 0, gl.GL_DEPTH_COMPONENT,
                     gl.GL_FLOAT, None)
-    gl.glActiveTexture(gl.GL_TEXTURE0)
+    # gl.glActiveTexture(gl.GL_TEXTURE0)
+
+    gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
     with framebuffer:
-        gl.glActiveTexture(gl.GL_TEXTURE1)
+        # gl.glActiveTexture(gl.GL_TEXTURE1)
         gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_DEPTH_ATTACHMENT, gl.GL_TEXTURE_2D,
                                   depth_tex, 0)
-        gl.glActiveTexture(gl.GL_TEXTURE2)
+        # gl.glActiveTexture(gl.GL_TEXTURE2)
         gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D,
                                   color_tex, 0)
-        gl.glActiveTexture(gl.GL_TEXTURE0)
+        # gl.glActiveTexture(gl.GL_TEXTURE0)
 
     start = current_time_ms()
 
