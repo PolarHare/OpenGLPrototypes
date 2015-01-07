@@ -7,7 +7,7 @@ from commons import matrix
 from commons.matrix import rect_to_rect_matrix
 from commons.utils import current_time_ms, timer
 from commons.opengl import build_program, use_program, VertexArrayObject, VertexBufferObject, create_image_texture, \
-    CLAMP_TEXTURE, LINEAR_TEXTURE, REPEAT_TEXTURE, Framebuffer, Texture2D, NEAREST_TEXTURE
+    CLAMP_TEXTURE, LINEAR_TEXTURE, REPEAT_TEXTURE, Framebuffer, Texture2D, NEAREST_TEXTURE, Texture1D
 
 import OpenGL.GL as gl
 import OpenGL.GLUT as glut
@@ -39,8 +39,11 @@ textured_rectangle_fp = '''
 #version 150
 #line 39
 uniform sampler2D background_tex;
-uniform sampler2D light_depth_tex;
+uniform sampler1D light_depth_tex;
 uniform mat3 world_to_light_depth_tex;
+
+uniform vec2 light_pos;
+uniform float light_range2;
 
 in VertexData {
     vec2 texture_coordinate;
@@ -50,16 +53,21 @@ in VertexData {
 void main()
 {
     gl_FragColor = texture(background_tex, VertexIn.texture_coordinate);
-    vec3 light_pos = world_to_light_depth_tex * vec3(VertexIn.position, 1.0);
-    float x = light_pos.x;
-    float y = light_pos.y;
-    float z = light_pos.z;
+    vec3 light_tex_pos = world_to_light_depth_tex * vec3(VertexIn.position, 1.0);
+    float x = light_tex_pos.x;
+    float y = light_tex_pos.y;
+    float z = light_tex_pos.z;
+    float max_shadow = 0.2;
     if (x <= 0 || x >= z || y <= 0 || y >= z) {
-        gl_FragColor *= 0.2;
+        gl_FragColor *= max_shadow;
     } else {
-        float light_depth = texture(light_depth_tex, vec2(x/z, 0.0)).r;
-        if (y/z > light_depth) {
-            gl_FragColor *= 0.2;
+        float dist_from_light = length(VertexIn.position - light_pos);
+        float light_depth = texture(light_depth_tex, x/z).r;
+        if (y/z > light_depth || dist_from_light*dist_from_light > light_range2) {
+            gl_FragColor *= max_shadow;
+        } else {
+            float a = (max_shadow - 1.0)/light_range2;
+            gl_FragColor *= max(a*dist_from_light*dist_from_light + 1, 0.0);
         }
     }
 }
@@ -113,12 +121,12 @@ def get_depth_tex(tex, width, height, debug=False):
 
 if __name__ == '__main__':
     width, height = 768, 512
-    shadow_resolution = 1024
+    shadow_resolution = 2048
     rect_range = 1000
     texture_width = 1.5
 
     camera_pos = np.asarray([0.0, 0.0])
-    meters_in_width = 4.0
+    meters_in_width = 15.0
 
     window_to_world = None
 
@@ -145,7 +153,7 @@ if __name__ == '__main__':
                                                    for row in range(box_rows)], np.uint8).ravel())
     box_position_stride = 8  # box_position.strides[2]
 
-    light = DirectionalLight.create_symmetric(np.asarray([0.0, 0.0]), 0, 120, 0.01, 100.0)
+    light = DirectionalLight.create_symmetric(np.asarray([0.0, 0.0]), 0, 120, 0.01, 10.0)
 
     glut.glutInit()
     glut.glutInitDisplayMode(glut.GLUT_DOUBLE | glut.GLUT_RGBA)
@@ -211,6 +219,10 @@ if __name__ == '__main__':
             loc = gl.glGetUniformLocation(gl_program, 'world_to_light_depth_tex')
             matrix = rect_to_rect_matrix([[-1, -1], [1, 1]], [[0, 0], [1, 1]]).dot(frustum_matrix)
             gl.glUniformMatrix3fv(loc, 1, False, matrix.T)
+            light_pos_loc = gl.glGetUniformLocation(gl_program, 'light_pos')
+            gl.glUniform2f(light_pos_loc, light.position[0], light.position[1])
+            light_range2_loc = gl.glGetUniformLocation(gl_program, 'light_range2')
+            gl.glUniform1f(light_range2_loc, light.far * light.far)
         with use_program(gl_program_shadow):
             loc = gl.glGetUniformLocation(gl_program_shadow, 'world_to_light_camera')
             matrix = frustum_matrix
@@ -222,14 +234,14 @@ if __name__ == '__main__':
     shadow_framebuffer = Framebuffer()
     assert gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER) == gl.GL_FRAMEBUFFER_COMPLETE
 
-    depth_tex = Texture2D()
+    depth_tex = Texture1D()
     depth_tex.set_params(CLAMP_TEXTURE + NEAREST_TEXTURE)
     with depth_tex:
-        gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_DEPTH_COMPONENT32F, shadow_resolution, 1, 0, gl.GL_DEPTH_COMPONENT,
+        gl.glTexImage1D(gl.GL_TEXTURE_1D, 0, gl.GL_DEPTH_COMPONENT32F, shadow_resolution, 0, gl.GL_DEPTH_COMPONENT,
                         gl.GL_FLOAT, None)
 
     with shadow_framebuffer:
-        gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_DEPTH_ATTACHMENT, gl.GL_TEXTURE_2D,
+        gl.glFramebufferTexture1D(gl.GL_FRAMEBUFFER, gl.GL_DEPTH_ATTACHMENT, gl.GL_TEXTURE_1D,
                                   depth_tex.handle, 0)
 
     background_loc = gl.glGetUniformLocation(gl_program, 'background_tex')
@@ -279,9 +291,10 @@ if __name__ == '__main__':
             update_light()
             render_light_depth()
 
+    max_fps = 0
 
     def keyboard(key, x, y):
-        global camera_pos, meters_in_width
+        global camera_pos, meters_in_width, max_fps
         speed = meters_in_width / 23.9
         if key == 'w':
             camera_pos[1] += speed
@@ -291,12 +304,14 @@ if __name__ == '__main__':
             camera_pos[0] += speed
         elif key == 'a':
             camera_pos[0] -= speed
-        if key == '\033':
+        elif key == '\033':
             glut.glutLeaveMainLoop()
-        if key == '-':
+        elif key == '-':
             meters_in_width *= 1.1
-        if key in {'+', '='}:
+        elif key in {'+', '='}:
             meters_in_width /= 1.1
+        elif key == ' ':
+            max_fps = 0
         if key in {'w', 's', 'd', 'a', '-', '+'}:
             update_world()
 
@@ -314,9 +329,11 @@ if __name__ == '__main__':
     last_display_time = current_time_ms()
 
     def display():
-        global last_display_time
+        global last_display_time, max_fps
         current_time = current_time_ms()
-        print 1000 / (current_time - last_display_time), 'FPS\r',
+        fps = 1000 / (current_time - last_display_time)
+        max_fps = max(fps, max_fps)
+        print '{} FPS  (max fps: {})\r'.format(fps, max_fps),
         last_display_time = current_time
 
         gl.glViewport(0, 0, width, height)
