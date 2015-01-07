@@ -182,6 +182,14 @@ class Texture2D(Texture):
     target = gl.GL_TEXTURE_2D
 
 
+class Texture1DArray(Texture):
+    target = gl.GL_TEXTURE_1D_ARRAY
+
+
+class Texture2DArray(Texture):
+    target = gl.GL_TEXTURE_2D_ARRAY
+
+
 def create_image_texture(filename, param=CLAMP_TEXTURE+LINEAR_TEXTURE):
 
     img = PIL.Image.open(filename)

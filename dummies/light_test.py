@@ -1,5 +1,7 @@
+import copy
 import ctypes
 from math import atan2, pi
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -7,15 +9,17 @@ from commons import matrix
 from commons.matrix import rect_to_rect_matrix
 from commons.utils import current_time_ms, timer
 from commons.opengl import build_program, use_program, VertexArrayObject, VertexBufferObject, create_image_texture, \
-    CLAMP_TEXTURE, LINEAR_TEXTURE, REPEAT_TEXTURE, Framebuffer, Texture2D, NEAREST_TEXTURE, Texture1D
+    CLAMP_TEXTURE, LINEAR_TEXTURE, REPEAT_TEXTURE, NEAREST_TEXTURE, Framebuffer, Texture1DArray
+from entities.light import DirectionalLight
 
 import OpenGL.GL as gl
 import OpenGL.GLUT as glut
-from entities.light import DirectionalLight
+
+LIGHTS_MAX = 32
 
 textured_rectangle_vp = '''
 #version 150
-#line 17
+#line 20
 uniform mat3 world_to_camera;
 
 in vec2 texture_coordinate;
@@ -37,13 +41,16 @@ void main()
 
 textured_rectangle_fp = '''
 #version 150
-#line 39
+#line 42
 uniform sampler2D background_tex;
-uniform sampler1D light_depth_tex;
-uniform mat3 world_to_light_depth_tex;
 
-uniform vec2 light_pos;
-uniform float light_range2;
+uniform int lights_count;
+
+uniform sampler1DArray light_depth_tex;
+
+uniform mat3 world_to_light_depth_tex[LIGHTS_MAX];
+uniform vec2 light_pos[LIGHTS_MAX];
+uniform float light_range[LIGHTS_MAX];
 
 in VertexData {
     vec2 texture_coordinate;
@@ -53,29 +60,31 @@ in VertexData {
 void main()
 {
     gl_FragColor = texture(background_tex, VertexIn.texture_coordinate);
-    vec3 light_tex_pos = world_to_light_depth_tex * vec3(VertexIn.position, 1.0);
-    float x = light_tex_pos.x;
-    float y = light_tex_pos.y;
-    float z = light_tex_pos.z;
-    float max_shadow = 0.2;
-    if (x <= 0 || x >= z || y <= 0 || y >= z) {
-        gl_FragColor *= max_shadow;
-    } else {
-        float dist_from_light = length(VertexIn.position - light_pos);
-        float light_depth = texture(light_depth_tex, x/z).r;
-        if (y/z > light_depth || dist_from_light*dist_from_light > light_range2) {
-            gl_FragColor *= max_shadow;
-        } else {
-            float a = (max_shadow - 1.0)/light_range2;
-            gl_FragColor *= max(a*dist_from_light*dist_from_light + 1, 0.0);
+    float min_light = 0.2;
+    float max_light = min_light;
+    for (int i = 0; i < lights_count; i++) {
+        vec3 light_tex_pos = world_to_light_depth_tex[i] * vec3(VertexIn.position, 1.0);
+        float x = light_tex_pos.x;
+        float y = light_tex_pos.y;
+        float z = light_tex_pos.z;
+        if (x > 0 && x < 1.0*z && y > 0 && y < 1.0*z) {
+            float dist_from_light = length(VertexIn.position - light_pos[i]);
+            float light_depth = texture(light_depth_tex, vec2(x/z, i)).r;
+            if (y/z <= light_depth && dist_from_light*dist_from_light <= light_range[i] * light_range[i]) {
+                // float a = (min_light - 1.0) / (light_range[i] * light_range[i]);
+                // float parabolic_shadow = a*dist_from_light*dist_from_light + 1;
+                float linear_shadow = 1.0 + dist_from_light * (min_light - 1.0) / light_range[i];
+                max_light = max(linear_shadow, max_light);
+            }
         }
     }
+    gl_FragColor *= max_light;
 }
-'''
+'''.replace('LIGHTS_MAX', str(LIGHTS_MAX))
 
 shadowcaster_vp = '''
 #version 150
-#line 67
+#line 85
 uniform mat3 world_to_light_camera;
 
 in vec2 position;
@@ -127,6 +136,7 @@ if __name__ == '__main__':
 
     camera_pos = np.asarray([0.0, 0.0])
     meters_in_width = 15.0
+    light_range = 5.0
 
     window_to_world = None
 
@@ -153,7 +163,9 @@ if __name__ == '__main__':
                                                    for row in range(box_rows)], np.uint8).ravel())
     box_position_stride = 8  # box_position.strides[2]
 
-    light = DirectionalLight.create_symmetric(np.asarray([0.0, 0.0]), 0, 120, 0.01, 10.0)
+    light = DirectionalLight.create_symmetric(np.asarray([0.0, 0.0]), 0, 120, 0.01, light_range)
+    lights_count = 1
+    lights = [light]
 
     glut.glutInit()
     glut.glutInitDisplayMode(glut.GLUT_DOUBLE | glut.GLUT_RGBA)
@@ -213,17 +225,24 @@ if __name__ == '__main__':
             loc = gl.glGetUniformLocation(gl_program, 'world_to_camera')
             gl.glUniformMatrix3fv(loc, 1, False, world_to_camera.T)
 
-    def update_light():
-        frustum_matrix = light.create_frustum_matrix()
+    def update_light(layer_index):
+        cur_light = lights[layer_index]
+        frustum_matrix = cur_light.create_frustum_matrix()
         with use_program(gl_program):
-            loc = gl.glGetUniformLocation(gl_program, 'world_to_light_depth_tex')
+            loc = gl.glGetUniformLocation(gl_program, 'world_to_light_depth_tex[{}]'.format(layer_index))
             matrix = rect_to_rect_matrix([[-1, -1], [1, 1]], [[0, 0], [1, 1]]).dot(frustum_matrix)
             gl.glUniformMatrix3fv(loc, 1, False, matrix.T)
-            light_pos_loc = gl.glGetUniformLocation(gl_program, 'light_pos')
-            gl.glUniform2f(light_pos_loc, light.position[0], light.position[1])
-            light_range2_loc = gl.glGetUniformLocation(gl_program, 'light_range2')
-            gl.glUniform1f(light_range2_loc, light.far * light.far)
+            light_pos_loc = gl.glGetUniformLocation(gl_program, 'light_pos[{}]'.format(layer_index))
+            gl.glUniform2f(light_pos_loc, cur_light.position[0], cur_light.position[1])
+            light_range2_loc = gl.glGetUniformLocation(gl_program, 'light_range[{}]'.format(layer_index))
+            gl.glUniform1f(light_range2_loc, cur_light.far)
+
+            lights_count_loc = gl.glGetUniformLocation(gl_program, 'lights_count')
+            gl.glUniform1i(lights_count_loc, lights_count)
         with use_program(gl_program_shadow):
+            with shadow_framebuffer:
+                gl.glFramebufferTextureLayer(gl.GL_FRAMEBUFFER, gl.GL_DEPTH_ATTACHMENT, depth_tex.handle, 0,
+                                             layer_index)
             loc = gl.glGetUniformLocation(gl_program_shadow, 'world_to_light_camera')
             matrix = frustum_matrix
             gl.glUniformMatrix3fv(loc, 1, False, matrix.T)
@@ -234,15 +253,11 @@ if __name__ == '__main__':
     shadow_framebuffer = Framebuffer()
     assert gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER) == gl.GL_FRAMEBUFFER_COMPLETE
 
-    depth_tex = Texture1D()
+    depth_tex = Texture1DArray()
     depth_tex.set_params(CLAMP_TEXTURE + NEAREST_TEXTURE)
     with depth_tex:
-        gl.glTexImage1D(gl.GL_TEXTURE_1D, 0, gl.GL_DEPTH_COMPONENT32F, shadow_resolution, 0, gl.GL_DEPTH_COMPONENT,
+        gl.glTexImage2D(depth_tex.target, 0, gl.GL_DEPTH_COMPONENT32F, shadow_resolution, LIGHTS_MAX, 0, gl.GL_DEPTH_COMPONENT,
                         gl.GL_FLOAT, None)
-
-    with shadow_framebuffer:
-        gl.glFramebufferTexture1D(gl.GL_FRAMEBUFFER, gl.GL_DEPTH_ATTACHMENT, gl.GL_TEXTURE_1D,
-                                  depth_tex.handle, 0)
 
     background_loc = gl.glGetUniformLocation(gl_program, 'background_tex')
     light_depth_loc = gl.glGetUniformLocation(gl_program, 'light_depth_tex')
@@ -261,14 +276,15 @@ if __name__ == '__main__':
                 # get_depth(shadow_resolution, 1, debug=True)
 
     update_world()
-    update_light()
+    update_light(lights_count - 1)
     with timer('rendering light'):
         render_light_depth()
 
     mouse_down_click = None
 
     def mouse(button, state, x, y):
-        global light, mouse_down_click
+        GLUT_WHEEL_UP, GLUT_WHEEL_DOWN = 3, 4
+        global light, lights_count, mouse_down_click
         click_pos = window_to_world.dot(np.array([x, y, 1.0]))
         click_pos = click_pos[:2] / click_pos[2]
         if button == glut.GLUT_LEFT_BUTTON:
@@ -277,7 +293,14 @@ if __name__ == '__main__':
                 light.position = mouse_down_click
             elif state == glut.GLUT_UP:
                 mouse_down_click = None
-            update_light()
+                if len(lights) < LIGHTS_MAX:
+                    light = copy.deepcopy(light)
+                    lights_count += 1
+                    lights.append(light)
+        elif button in {GLUT_WHEEL_UP, GLUT_WHEEL_DOWN}:
+            direction = 1 if button == GLUT_WHEEL_UP else -1
+            light.course += direction * 3
+            update_light(lights_count - 1)
             render_light_depth()
 
     def mouse_moved(x, y):
@@ -288,7 +311,11 @@ if __name__ == '__main__':
             delta_x, delta_y = click_pos - mouse_down_click
             if abs(delta_x) > 0.1 or abs(delta_y) > 0.1:
                 light.course = -90 + atan2(delta_y, delta_x) * 180 / pi
-            update_light()
+            update_light(lights_count - 1)
+            render_light_depth()
+        else:
+            light.position = click_pos
+            update_light(lights_count - 1)
             render_light_depth()
 
     max_fps = 0
@@ -347,6 +374,7 @@ if __name__ == '__main__':
 
     glut.glutMouseFunc(mouse)
     glut.glutMotionFunc(mouse_moved)
+    glut.glutPassiveMotionFunc(mouse_moved)
     glut.glutKeyboardFunc(keyboard)
     glut.glutReshapeFunc(reshape)
     glut.glutDisplayFunc(display)
